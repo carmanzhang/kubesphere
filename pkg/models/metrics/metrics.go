@@ -17,7 +17,6 @@ limitations under the License.
 package metrics
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -26,17 +25,20 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/pkg/errors"
-	"k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"runtime/debug"
 	"sort"
 
+	"github.com/json-iterator/go"
 	"kubesphere.io/kubesphere/pkg/client"
 	"kubesphere.io/kubesphere/pkg/models"
 	"kubesphere.io/kubesphere/pkg/models/workspaces"
 )
+
+
+
+var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 var nodeStatusDelLables = []string{"endpoint", "instance", "job", "namespace", "pod", "service"}
 
@@ -120,6 +122,87 @@ type OneComponentStatus struct {
 	Error string `json:"error,omitempty"`
 }
 
+type IPAddress struct {
+	Type string  `json:"type"`
+	Address string  `json:"address"`
+}
+
+type IPAddresses []IPAddress
+
+func GetNodeAddressInfo() *map[string]string {
+
+	paramValues := make(url.Values)
+	paramValues.Set("query", NodeAddressRule)
+	params := paramValues.Encode()
+	res := client.SendMonitoringRequest(client.DefaultQueryType, params)
+
+	metric := ReformatJson(res, "")
+
+	nodeIPMap := make(map[string]string)
+
+	for i := 0; i < len(metric.Data.Result); i++ {
+		metricDesc := metric.Data.Result[i][ResultItemMetric]
+		metricDescMap, ensure := metricDesc.(map[string]interface{})
+		if ensure {
+			node, nodeExist := metricDescMap[MetricLevelNode]
+			internalIP, ipExist := metricDescMap[NodeAddressLabelKey]
+			if nodeExist && ipExist {
+				nodeIPMap[node.(string)] = internalIP.(string)
+			}
+		}
+	}
+
+	return &nodeIPMap
+}
+
+func AddNodeAddressMetric(nodeMetric *FormatedMetric, nodeIPMap *map[string]string) {
+
+	for i := 0; i < len(nodeMetric.Data.Result); i++ {
+		metricDesc := nodeMetric.Data.Result[i][ResultItemMetric]
+		metricDescMap, ensure := metricDesc.(map[string]interface{})
+		if ensure {
+			if nodeId, exist := metricDescMap["node"]; exist {
+				addr, exist := (*nodeIPMap)[nodeId.(string)]
+				if exist {
+					metricDescMap["address"] = IPAddresses{
+						IPAddress{
+							Type:"InternalIP",
+							Address: addr,
+					},}
+				}
+			}
+		}
+	}
+}
+
+func getAllWorkspaceNames(formatedMetric *FormatedMetric) map[string]int {
+
+	var wsMap = make(map[string]int)
+
+	for i := 0; i < len(formatedMetric.Data.Result); i++ {
+		metricDesc := formatedMetric.Data.Result[i][ResultItemMetric]
+		metricDescMap, ensure := metricDesc.(map[string]interface{})
+		if ensure {
+			if wsLabel, exist := metricDescMap[WorkspaceJoinedKey]; exist {
+				wsMap[wsLabel.(string)] = 1
+			}
+		}
+	}
+	return wsMap
+}
+
+func getAllWorkspaces() map[string]int {
+
+	paramValues := make(url.Values)
+	paramValues.Set("query", WorkspaceNamespaceLabelRule)
+	params := paramValues.Encode()
+	res := client.SendMonitoringRequest(client.DefaultQueryType, params)
+
+	metric := ReformatJson(res, "")
+
+	return getAllWorkspaceNames(metric)
+}
+
 func getPodNameRegexInWorkload(res string) string {
 
 	data := []byte(res)
@@ -140,6 +223,13 @@ func getPodNameRegexInWorkload(res string) string {
 
 func unifyMetricHistoryTimeRange(fmtMetrics *FormatedMetric) {
 
+	defer func() {
+		if err := recover(); err != nil {
+			glog.Errorln(err)
+			debug.PrintStack()
+		}
+	}()
+
 	var timestampMap = make(map[float64]bool)
 
 	if fmtMetrics.Data.ResultType == ResultTypeMatrix {
@@ -150,7 +240,7 @@ func unifyMetricHistoryTimeRange(fmtMetrics *FormatedMetric) {
 				if sure {
 					for j, _ := range valueArray {
 						timeAndValue := valueArray[j].([]interface{})
-						timestampMap[timeAndValue[0].(float64)] = true
+						timestampMap[float64(timeAndValue[0].(uint64))] = true
 					}
 				}
 			}
@@ -178,7 +268,7 @@ func unifyMetricHistoryTimeRange(fmtMetrics *FormatedMetric) {
 
 					for k, _ := range timestampArray {
 						valueItem, sure := valueArray[j].([]interface{})
-						if sure && valueItem[0].(float64) == timestampArray[k] {
+						if sure && float64(valueItem[0].(uint64)) == timestampArray[k] {
 							formatValueArray[k] = []interface{}{int64(timestampArray[k]), valueItem[1]}
 							j++
 						} else {
@@ -236,34 +326,6 @@ func GetMetric(queryType, params, metricName string) *FormatedMetric {
 	res := client.SendMonitoringRequest(queryType, params)
 	formatedMetric := ReformatJson(res, metricName)
 	return formatedMetric
-}
-
-func GetNodeAddressInfo() *map[string][]v1.NodeAddress {
-	nodeList, err := client.NewK8sClient().CoreV1().Nodes().List(metaV1.ListOptions{})
-	if err != nil {
-		glog.Errorln(err.Error())
-	}
-	var nodeAddress = make(map[string][]v1.NodeAddress)
-	for _, node := range nodeList.Items {
-		nodeAddress[node.Name] = node.Status.Addresses
-	}
-	return &nodeAddress
-}
-
-func AddNodeAddressMetric(nodeMetric *FormatedMetric, nodeAddress *map[string][]v1.NodeAddress) {
-
-	for i := 0; i < len(nodeMetric.Data.Result); i++ {
-		metricDesc := nodeMetric.Data.Result[i][ResultItemMetric]
-		metricDescMap, ensure := metricDesc.(map[string]interface{})
-		if ensure {
-			if nodeId, exist := metricDescMap["node"]; exist {
-				addr, exist := (*nodeAddress)[nodeId.(string)]
-				if exist {
-					metricDescMap["address"] = addr
-				}
-			}
-		}
-	}
 }
 
 func MonitorContainer(monitoringRequest *client.MonitoringRequestParams, metricName string) *FormatedMetric {
@@ -373,13 +435,9 @@ func MonitorAllWorkspaces(monitoringRequest *client.MonitoringRequestParams) *Fo
 	var wgAll sync.WaitGroup
 	var wsAllch = make(chan *[]FormatedMetric, ChannelMaxCapacityWorkspaceMetric)
 
-	workspaceNamespaceMap, _, err := workspaces.GetAllOrgAndProjList()
+	wsMap := getAllWorkspaces()
 
-	if err != nil {
-		glog.Errorln(err.Error())
-	}
-
-	for ws, _ := range workspaceNamespaceMap {
+	for ws := range wsMap {
 		bol, err := regexp.MatchString(monitoringRequest.WsFilter, ws)
 		if err == nil && bol {
 			// a workspace
@@ -552,18 +610,6 @@ func MonitorAllMetrics(monitoringRequest *client.MonitoringRequestParams, resour
 				}
 			} else {
 				// sum all workspaces
-				_, namespaceWorkspaceMap, err := workspaces.GetAllOrgAndProjList()
-
-				if err != nil {
-					glog.Errorln(err.Error())
-				}
-
-				nsList := make([]string, 0)
-				for ns := range namespaceWorkspaceMap {
-					if namespaceWorkspaceMap[ns] == "" {
-						nsList = append(nsList, ns)
-					}
-				}
 
 				for _, metricName := range WorkspaceMetricsNames {
 					bol, err := regexp.MatchString(metricsFilter, metricName)
@@ -574,14 +620,7 @@ func MonitorAllMetrics(monitoringRequest *client.MonitoringRequestParams, resour
 						go func(metricName string) {
 							queryType, params := AssembleAllWorkspaceMetricRequestInfo(monitoringRequest, nil, metricName)
 
-							if metricName == MetricNameWorkspaceAllProjectCount {
-								res := GetMetric(queryType, params, metricName)
-								res = MonitorWorkspaceNamespaceHistory(res)
-								ch <- res
-
-							} else {
-								ch <- GetMetric(queryType, params, metricName)
-							}
+							ch <- GetMetric(queryType, params, metricName)
 
 							wg.Done()
 						}(metricName)
@@ -606,14 +645,17 @@ func MonitorAllMetrics(monitoringRequest *client.MonitoringRequestParams, resour
 	case MetricLevelWorkload:
 		{
 			if monitoringRequest.Tp == "rank" {
-
+				// replicas which is created by replicaset directly, not from deployment
+				//replicaNames := getCreatedOnlyReplicas(monitoringRequest.NsName)
 				for _, metricName := range WorkloadMetricsNames {
 					bol, err := regexp.MatchString(metricsFilter, metricName)
 					if err == nil && bol {
 						wg.Add(1)
 						go func(metricName string) {
 							queryType, params := AssembleAllWorkloadMetricRequestInfo(monitoringRequest, metricName)
-							ch <- GetMetric(queryType, params, metricName)
+							fmtMetrics := GetMetric(queryType, params, metricName)
+							//renameWorkload(fmtMetrics, replicaNames)
+							ch <- fmtMetrics
 							wg.Done()
 						}(metricName)
 					}
@@ -688,82 +730,6 @@ func MonitorAllMetrics(monitoringRequest *client.MonitoringRequestParams, resour
 	}
 }
 
-func MonitorWorkspaceNamespaceHistory(metric *FormatedMetric) *FormatedMetric {
-	resultType := metric.Data.ResultType
-	//metric.Status
-	metricName := metric.MetricName
-
-	for i := 0; i < len(metric.Data.Result); i++ {
-		metricItem := metric.Data.Result[i]
-
-		if resultType == ResultTypeVector {
-			timeAndValue, sure := metricItem[ResultItemValue].([]interface{})
-			if !sure {
-				return metric
-			}
-			metric := getNamespaceHistoryMetric(timeAndValue[0].(float64), metricName)
-
-			workspaceNamespaceCount := calcWorkspaceNamespace(metric)
-
-			timeAndValue[1] = fmt.Sprintf("%d", workspaceNamespaceCount)
-
-		} else if resultType == ResultTypeMatrix {
-
-			values, sure := metricItem[ResultItemValues].([]interface{})
-			if !sure {
-				return metric
-			}
-
-			for _, valueItem := range values {
-				timeAndValue, sure := valueItem.([]interface{})
-				if !sure {
-					return metric
-				}
-
-				metric := getNamespaceHistoryMetric(timeAndValue[0].(float64), metricName)
-
-				workspaceNamespaceCount := calcWorkspaceNamespace(metric)
-
-				timeAndValue[1] = fmt.Sprintf("%d", workspaceNamespaceCount)
-			}
-		}
-	}
-
-	return metric
-}
-
-func getNamespaceHistoryMetric(timestamp float64, metricName string) *FormatedMetric {
-	var timeRelatedParams = make(url.Values)
-	timeRelatedParams.Set("time", fmt.Sprintf("%f", timestamp))
-	timeRelatedParams.Set("query", NamespaceLabelRule)
-	params := timeRelatedParams.Encode()
-	metric := GetMetric(client.DefaultQueryType, params, metricName)
-	return metric
-}
-
-// calculate all namespace which belong to workspaces
-func calcWorkspaceNamespace(metric *FormatedMetric) int {
-	if metric.Status == "error" {
-		glog.Errorf("failed when retrive namespace history, the metric is %v", metric.Data.Result)
-		return 0
-	}
-
-	var workspaceNamespaceCount = 0
-
-	for _, result := range metric.Data.Result {
-		tmpMap, sure := result[ResultItemMetric].(map[string]interface{})
-		if sure {
-			wsName, exist := tmpMap[WorkspaceJoinedKey]
-
-			if exist && wsName != "" {
-				workspaceNamespaceCount += 1
-			}
-		}
-	}
-
-	return workspaceNamespaceCount
-}
-
 func MonitorAllWorkspacesStatistics() *FormatedLevelMetric {
 
 	wg := sync.WaitGroup{}
@@ -772,13 +738,10 @@ func MonitorAllWorkspacesStatistics() *FormatedLevelMetric {
 
 	var orgResultItem *FormatedMetric
 	var devopsResultItem *FormatedMetric
-	var clusterProjResultItem *FormatedMetric
 	var workspaceProjResultItem *FormatedMetric
 	var accountResultItem *FormatedMetric
 
-	wsMap, projs, errProj := workspaces.GetAllOrgAndProjList()
-
-	wg.Add(5)
+	wg.Add(4)
 
 	go func() {
 		orgNums, errOrg := workspaces.GetAllOrgNums()
@@ -799,23 +762,11 @@ func MonitorAllWorkspacesStatistics() *FormatedLevelMetric {
 	}()
 
 	go func() {
-		var projNums = 0
-		for _, v := range wsMap {
-			projNums += len(v)
-		}
+		projNums, errProj := workspaces.GetAllProjectNums()
 		if errProj != nil {
 			glog.Errorln(errProj.Error())
 		}
 		workspaceProjResultItem = getSpecificMetricItem(timestamp, MetricNameWorkspaceAllProjectCount, WorkspaceResourceKindNamespace, projNums, errProj)
-		wg.Done()
-	}()
-
-	go func() {
-		projNums := len(projs)
-		if errProj != nil {
-			glog.Errorln(errProj.Error())
-		}
-		clusterProjResultItem = getSpecificMetricItem(timestamp, MetricNameClusterAllProjectCount, WorkspaceResourceKindNamespace, projNums, errProj)
 		wg.Done()
 	}()
 
@@ -830,7 +781,7 @@ func MonitorAllWorkspacesStatistics() *FormatedLevelMetric {
 
 	wg.Wait()
 
-	metricsArray = append(metricsArray, *orgResultItem, *devopsResultItem, *workspaceProjResultItem, *accountResultItem, *clusterProjResultItem)
+	metricsArray = append(metricsArray, *orgResultItem, *devopsResultItem, *workspaceProjResultItem, *accountResultItem)
 
 	return &FormatedLevelMetric{
 		MetricsLevel: MetricLevelWorkspace,
@@ -854,16 +805,7 @@ func MonitorOneWorkspaceStatistics(wsName string) *FormatedLevelMetric {
 	go func() {
 		// add namespaces(project) metric
 		namespaces, errNs := workspaces.WorkspaceNamespaces(wsName)
-		namespaces, noneExistentNs := getExistingNamespace(namespaces)
-		if len(noneExistentNs) != 0 {
-			nsStr := strings.Join(noneExistentNs, "|")
-			errStr := "the namespaces " + nsStr + " do not exist"
-			if errNs == nil {
-				errNs = errors.New(errStr)
-			} else {
-				errNs = errors.New(errNs.Error() + "\t" + errStr)
-			}
-		}
+
 		if errNs != nil {
 			glog.Errorln(errNs.Error())
 		}
@@ -1056,33 +998,6 @@ func makeMetricItems(timestamp int64, statusMap map[string]int, resourceType str
 	return &metricItems
 }
 
-// monitor k8s event, there are two status: Normal, Warning
-func MonitorEvents(nsFilter string) *[]v1.Event {
-	namespaceMap, err := getAllNamespace()
-	if err != nil {
-		glog.Errorln(err.Error())
-	}
-	var nsList = make([]string, 0)
-	for ns, _ := range namespaceMap {
-		nsList = append(nsList, ns)
-	}
-
-	filterNS := filterNamespace(nsFilter, nsList)
-	var eventsList = make([]v1.Event, 0)
-
-	for _, ns := range filterNS {
-		events, err := client.NewK8sClient().CoreV1().Events(ns).List(metaV1.ListOptions{})
-		if err != nil {
-			glog.Errorln(err.Error())
-		} else {
-			for _, item := range events.Items {
-				eventsList = append(eventsList, item)
-			}
-		}
-	}
-	return &eventsList
-}
-
 func AssembleClusterMetricRequestInfo(monitoringRequest *client.MonitoringRequestParams, metricName string) (string, string) {
 	queryType := monitoringRequest.QueryType
 	paramValues := monitoringRequest.Params
@@ -1099,88 +1014,4 @@ func AssembleNodeMetricRequestInfo(monitoringRequest *client.MonitoringRequestPa
 	params := makeRequestParamString(rule, paramValues)
 
 	return queryType, params
-}
-
-func getExistingNamespace(namespaces []string) ([]string, []string) {
-	namespaceMap, err := getAllNamespace()
-	var existedNS []string
-	var noneExistedNS []string
-	if err != nil {
-		return namespaces, nil
-	}
-	for _, ns := range namespaces {
-		if _, exist := namespaceMap[ns]; exist {
-			existedNS = append(existedNS, ns)
-		} else {
-			noneExistedNS = append(noneExistedNS, ns)
-		}
-	}
-	return existedNS, noneExistedNS
-}
-
-func getAllNamespace() (map[string]int, error) {
-	k8sClient := client.NewK8sClient()
-	nsList, err := k8sClient.CoreV1().Namespaces().List(metaV1.ListOptions{})
-	if err != nil {
-		glog.Errorln(err.Error())
-		return nil, err
-	}
-	namespaceMap := make(map[string]int)
-	for _, item := range nsList.Items {
-		namespaceMap[item.Name] = 0
-	}
-	return namespaceMap, nil
-}
-
-func MonitorWorkloadCount(namespace string) *FormatedMetric {
-	quotaMetric, err := models.GetNamespaceQuota(namespace)
-	fMetric := convertQuota2MetricStruct(quotaMetric)
-
-	// whether the namespace in request parameters exists?
-	namespaceMap, err := getAllNamespace()
-
-	_, exist := namespaceMap[namespace]
-	if err != nil {
-		exist = true
-	}
-
-	if !exist || err != nil {
-		fMetric.Status = MetricStatusError
-		fMetric.Data.ResultType = ""
-		errInfo := make(map[string]interface{})
-		if err != nil {
-			errInfo["errormsg"] = err.Error()
-		} else {
-			errInfo["errormsg"] = "namespace " + namespace + " does not exist"
-		}
-		fMetric.Data.Result = []map[string]interface{}{errInfo}
-	}
-
-	return fMetric
-}
-
-func convertQuota2MetricStruct(quotaMetric *models.ResourceQuota) *FormatedMetric {
-	var fMetric FormatedMetric
-	fMetric.MetricName = MetricNameWorkloadCount
-	fMetric.Status = MetricStatusSuccess
-	fMetric.Data.ResultType = ResultTypeVector
-	timestamp := int64(time.Now().Unix())
-	var resultItems []map[string]interface{}
-
-	hardMap := make(map[string]string)
-	for resourceName, v := range quotaMetric.Data.Hard {
-		hardMap[resourceName.String()] = v.String()
-	}
-
-	for resourceName, v := range quotaMetric.Data.Used {
-		resultItem := make(map[string]interface{})
-		tmp := make(map[string]string)
-		tmp[ResultItemMetricResource] = resourceName.String()
-		resultItem[ResultItemMetric] = tmp
-		resultItem[ResultItemValue] = []interface{}{timestamp, hardMap[resourceName.String()], v.String()}
-		resultItems = append(resultItems, resultItem)
-	}
-
-	fMetric.Data.Result = resultItems
-	return &fMetric
 }

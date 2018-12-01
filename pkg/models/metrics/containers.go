@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"encoding/json"
 
 	"strings"
 
