@@ -36,8 +36,6 @@ import (
 	"kubesphere.io/kubesphere/pkg/models/workspaces"
 )
 
-
-
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 var nodeStatusDelLables = []string{"endpoint", "instance", "job", "namespace", "pod", "service"}
@@ -123,8 +121,8 @@ type OneComponentStatus struct {
 }
 
 type IPAddress struct {
-	Type string  `json:"type"`
-	Address string  `json:"address"`
+	Type    string `json:"type"`
+	Address string `json:"address"`
 }
 
 type IPAddresses []IPAddress
@@ -166,9 +164,9 @@ func AddNodeAddressMetric(nodeMetric *FormatedMetric, nodeIPMap *map[string]stri
 				if exist {
 					metricDescMap["address"] = IPAddresses{
 						IPAddress{
-							Type:"InternalIP",
+							Type:    "InternalIP",
 							Address: addr,
-					},}
+						}}
 				}
 			}
 		}
@@ -203,20 +201,29 @@ func getAllWorkspaces() map[string]int {
 	return getAllWorkspaceNames(metric)
 }
 
-func getPodNameRegexInWorkload(res string) string {
+func getPodNameRegexInWorkload(res, filter string) string {
 
 	data := []byte(res)
 	var dat CommonMetricsResult
 	jsonErr := json.Unmarshal(data, &dat)
 	if jsonErr != nil {
-		glog.Errorln("json parse failed", jsonErr)
+		glog.Errorln("json parse failed", jsonErr.Error(), res)
 	}
 	var podNames []string
 
 	for _, item := range dat.Data.Result {
 		podName := item.KubePodMetric.Pod
-		podNames = append(podNames, podName)
+
+		if filter != "" {
+			if bol, _ := regexp.MatchString(filter, podName); bol {
+				podNames = append(podNames, podName)
+			}
+		} else {
+			podNames = append(podNames, podName)
+		}
+
 	}
+
 	podNamesFilter := "^(" + strings.Join(podNames, "|") + ")$"
 	return podNamesFilter
 }
@@ -286,6 +293,7 @@ func AssembleSpecificWorkloadMetricRequestInfo(monitoringRequest *client.Monitor
 
 	nsName := monitoringRequest.NsName
 	wkName := monitoringRequest.WorkloadName
+	podsFilter := monitoringRequest.PodsFilter
 
 	rule := MakeSpecificWorkloadRule(monitoringRequest.WorkloadKind, wkName, nsName)
 	paramValues := monitoringRequest.Params
@@ -293,7 +301,7 @@ func AssembleSpecificWorkloadMetricRequestInfo(monitoringRequest *client.Monitor
 
 	res := client.SendMonitoringRequest(client.DefaultQueryType, params)
 
-	podNamesFilter := getPodNameRegexInWorkload(res)
+	podNamesFilter := getPodNameRegexInWorkload(res, podsFilter)
 
 	queryType := monitoringRequest.QueryType
 	rule = MakePodPromQL(metricName, nsName, "", "", podNamesFilter)
@@ -645,8 +653,6 @@ func MonitorAllMetrics(monitoringRequest *client.MonitoringRequestParams, resour
 	case MetricLevelWorkload:
 		{
 			if monitoringRequest.Tp == "rank" {
-				// replicas which is created by replicaset directly, not from deployment
-				//replicaNames := getCreatedOnlyReplicas(monitoringRequest.NsName)
 				for _, metricName := range WorkloadMetricsNames {
 					bol, err := regexp.MatchString(metricsFilter, metricName)
 					if err == nil && bol {
@@ -654,7 +660,6 @@ func MonitorAllMetrics(monitoringRequest *client.MonitoringRequestParams, resour
 						go func(metricName string) {
 							queryType, params := AssembleAllWorkloadMetricRequestInfo(monitoringRequest, metricName)
 							fmtMetrics := GetMetric(queryType, params, metricName)
-							//renameWorkload(fmtMetrics, replicaNames)
 							ch <- fmtMetrics
 							wg.Done()
 						}(metricName)
