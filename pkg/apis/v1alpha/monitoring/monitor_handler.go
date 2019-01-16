@@ -35,6 +35,7 @@ func (u Monitor) monitorPod(request *restful.Request, response *restful.Response
 		if !nullRule {
 			res = metrics.GetMetric(queryType, params, metricName)
 		}
+		metrics.AddResourceNameField(res, metrics.MetricLevelPodName)
 		response.WriteAsJson(res)
 
 	} else {
@@ -44,7 +45,7 @@ func (u Monitor) monitorPod(request *restful.Request, response *restful.Response
 		sortedMetrics, maxMetricCount := metrics.Sort(requestParams.SortMetricName, requestParams.SortType, rawMetrics, metrics.MetricLevelPodName)
 		// paging
 		pagedMetrics := metrics.Page(requestParams.PageNum, requestParams.LimitNum, sortedMetrics, maxMetricCount)
-
+		metrics.AddResourceNameField(pagedMetrics, metrics.MetricLevelPodName)
 		response.WriteAsJson(pagedMetrics)
 	}
 }
@@ -59,10 +60,12 @@ func (u Monitor) monitorContainer(request *restful.Request, response *restful.Re
 		// paging
 		pagedMetrics := metrics.Page(requestParams.PageNum, requestParams.LimitNum, sortedMetrics, maxMetricCount)
 
+		metrics.AddResourceNameField(pagedMetrics, metrics.MetricLevelContainerName)
 		response.WriteAsJson(pagedMetrics)
 
 	} else {
 		res := metrics.MonitorContainer(requestParams, metricName)
+		metrics.AddResourceNameField(res, metrics.MetricLevelContainerName)
 		response.WriteAsJson(res)
 	}
 
@@ -90,6 +93,8 @@ func (u Monitor) monitorWorkload(request *restful.Request, response *restful.Res
 	// paging
 	pagedMetrics := metrics.Page(requestParams.PageNum, requestParams.LimitNum, sortedMetrics, maxMetricCount)
 
+	metrics.AddResourceNameField(pagedMetrics, metrics.MetricLevelPodName)
+	metrics.AddResourceNameField(pagedMetrics, metrics.MetricLevelWorkload)
 	response.WriteAsJson(pagedMetrics)
 
 }
@@ -99,10 +104,10 @@ func (u Monitor) monitorAllWorkspaces(request *restful.Request, response *restfu
 	requestParams := client.ParseMonitoringRequestParams(request)
 
 	tp := requestParams.Tp
-	if tp == "_statistics" {
+	if tp == "statistics" {
 		// merge multiple metric: all-devops, all-roles, all-projects...this api is designed for admin
 		res := metrics.MonitorAllWorkspacesStatistics()
-
+		metrics.AddResourceNameField(res, metrics.MetricLevelWorkspace)
 		response.WriteAsJson(res)
 
 	} else if tp == "rank" {
@@ -115,6 +120,7 @@ func (u Monitor) monitorAllWorkspaces(request *restful.Request, response *restfu
 		response.WriteAsJson(pagedMetrics)
 	} else {
 		res := metrics.MonitorAllMetrics(requestParams, metrics.MetricLevelWorkspace)
+		metrics.AddResourceNameField(res, metrics.MetricLevelWorkspace)
 		response.WriteAsJson(res)
 	}
 }
@@ -130,17 +136,19 @@ func (u Monitor) monitorOneWorkspace(request *restful.Request, response *restful
 		sortedMetrics, maxMetricCount := metrics.Sort(requestParams.SortMetricName, requestParams.SortType, rawMetrics, metrics.MetricLevelNamespace)
 		// paging
 		pagedMetrics := metrics.Page(requestParams.PageNum, requestParams.LimitNum, sortedMetrics, maxMetricCount)
-
+		metrics.AddResourceNameField(pagedMetrics, metrics.MetricLevelWorkspace)
 		response.WriteAsJson(pagedMetrics)
 
-	} else if tp == "_statistics" {
+	} else if tp == "statistics" {
 		wsName := requestParams.WsName
 
 		// merge multiple metric: devops, roles, projects...
 		res := metrics.MonitorOneWorkspaceStatistics(wsName)
+		metrics.AddResourceNameField(res, metrics.MetricLevelWorkspace)
 		response.WriteAsJson(res)
 	} else {
 		res := metrics.MonitorAllMetrics(requestParams, metrics.MetricLevelWorkspace)
+		metrics.AddResourceNameField(res, metrics.MetricLevelWorkspace)
 		response.WriteAsJson(res)
 	}
 }
@@ -153,6 +161,8 @@ func (u Monitor) monitorNamespace(request *restful.Request, response *restful.Re
 		// single
 		queryType, params := metrics.AssembleNamespaceMetricRequestInfo(requestParams, metricName)
 		res := metrics.GetMetric(queryType, params, metricName)
+		metrics.AddResourceNameField(res, metrics.MetricLevelNamespace)
+
 		response.WriteAsJson(res)
 	} else {
 		// multiple
@@ -161,7 +171,7 @@ func (u Monitor) monitorNamespace(request *restful.Request, response *restful.Re
 		sortedMetrics, maxMetricCount := metrics.Sort(requestParams.SortMetricName, requestParams.SortType, rawMetrics, metrics.MetricLevelNamespace)
 		// paging
 		pagedMetrics := metrics.Page(requestParams.PageNum, requestParams.LimitNum, sortedMetrics, maxMetricCount)
-
+		metrics.AddResourceNameField(pagedMetrics, metrics.MetricLevelNamespace)
 		response.WriteAsJson(pagedMetrics)
 	}
 }
@@ -174,11 +184,13 @@ func (u Monitor) monitorCluster(request *restful.Request, response *restful.Resp
 		// single
 		queryType, params := metrics.AssembleClusterMetricRequestInfo(requestParams, metricName)
 		res := metrics.GetMetric(queryType, params, metricName)
+		metrics.AddResourceNameField(res, metrics.MetricLevelCluster, "local")
 
 		response.WriteAsJson(res)
 	} else {
 		// multiple
 		res := metrics.MonitorAllMetrics(requestParams, metrics.MetricLevelCluster)
+		metrics.AddResourceNameField(res, metrics.MetricLevelCluster, "local")
 		response.WriteAsJson(res)
 	}
 }
@@ -193,6 +205,8 @@ func (u Monitor) monitorNode(request *restful.Request, response *restful.Respons
 		res := metrics.GetMetric(queryType, params, metricName)
 		nodeAddress := metrics.GetNodeAddressInfo()
 		metrics.AddNodeAddressMetric(res, nodeAddress)
+		metrics.AddResourceNameField(res, metrics.MetricLevelNode)
+
 		response.WriteAsJson(res)
 	} else {
 		// multiple
@@ -207,6 +221,7 @@ func (u Monitor) monitorNode(request *restful.Request, response *restful.Respons
 		sortedMetrics, maxMetricCount := metrics.Sort(requestParams.SortMetricName, requestParams.SortType, rawMetrics, metrics.MetricLevelNode)
 		// paging
 		pagedMetrics := metrics.Page(requestParams.PageNum, requestParams.LimitNum, sortedMetrics, maxMetricCount)
+		metrics.AddResourceNameField(pagedMetrics, metrics.MetricLevelNode)
 
 		response.WriteAsJson(pagedMetrics)
 	}
@@ -227,7 +242,7 @@ func Register(ws *restful.WebService, subPath string) {
 	tags := []string{"monitoring apis"}
 	u := Monitor{}
 
-	ws.Route(ws.GET(subPath+"/clusters").To(u.monitorCluster).
+	ws.Route(ws.GET(subPath+"/cluster").To(u.monitorCluster).
 		Filter(route.RouteLogging).
 		Doc("monitor cluster level metrics").
 		Param(ws.QueryParameter("metrics_filter", "metrics name cpu memory...in re2 regex").DataType("string").Required(false).DefaultValue("cluster_cpu_utilisation")).
@@ -239,7 +254,7 @@ func Register(ws *restful.WebService, subPath string) {
 		Filter(route.RouteLogging).
 		Doc("monitor nodes level metrics").
 		Param(ws.QueryParameter("metrics_filter", "metrics name cpu memory...in re2 regex").DataType("string").Required(false).DefaultValue("node_cpu_utilisation")).
-		Param(ws.QueryParameter("nodes_filter", "node re2 expression filter").DataType("string").Required(false).DefaultValue("")).
+		Param(ws.QueryParameter("resources_filter", "node re2 expression filter").DataType("string").Required(false).DefaultValue("")).
 		Param(ws.QueryParameter("sort_metric", "sort metric").DataType("string").Required(false)).
 		Param(ws.QueryParameter("sort_type", "ascending descending order").DataType("string").Required(false)).
 		Param(ws.QueryParameter("page", "page number").DataType("string").Required(false).DefaultValue("1")).
@@ -260,7 +275,7 @@ func Register(ws *restful.WebService, subPath string) {
 	ws.Route(ws.GET(subPath+"/namespaces").To(u.monitorNamespace).
 		Filter(route.RouteLogging).
 		Doc("monitor namespaces level metrics").
-		Param(ws.QueryParameter("namespaces_filter", "namespaces re2 expression filter").DataType("string").Required(false).DefaultValue("")).
+		Param(ws.QueryParameter("resources_filter", "namespaces re2 expression filter").DataType("string").Required(false).DefaultValue("")).
 		Param(ws.QueryParameter("metrics_filter", "metrics name cpu memory...in re2 regex").DataType("string").Required(false).DefaultValue("namespace_memory_utilisation")).
 		Param(ws.QueryParameter("sort_metric", "sort metric").DataType("string").Required(false)).
 		Param(ws.QueryParameter("sort_type", "ascending descending order").DataType("string").Required(false)).
@@ -284,7 +299,7 @@ func Register(ws *restful.WebService, subPath string) {
 		Doc("monitor pods level metrics").
 		Param(ws.PathParameter("ns_name", "specific namespace").DataType("string").Required(true).DefaultValue("monitoring")).
 		Param(ws.QueryParameter("metrics_filter", "metrics name cpu memory...in re2 regex").DataType("string").Required(false).DefaultValue("pod_memory_utilisation_wo_cache")).
-		Param(ws.QueryParameter("pods_filter", "pod re2 expression filter").DataType("string").Required(false).DefaultValue("")).
+		Param(ws.QueryParameter("resources_filter", "pod re2 expression filter").DataType("string").Required(false).DefaultValue("")).
 		Param(ws.QueryParameter("sort_metric", "sort metric").DataType("string").Required(false)).
 		Param(ws.QueryParameter("sort_type", "ascending descending order").DataType("string").Required(false)).
 		Param(ws.QueryParameter("page", "page number").DataType("string").Required(false).DefaultValue("1")).
@@ -308,7 +323,7 @@ func Register(ws *restful.WebService, subPath string) {
 		Doc("monitor pods level metrics by nodeid").
 		Param(ws.PathParameter("node_id", "specific node").DataType("string").Required(true).DefaultValue("i-k89a62il")).
 		Param(ws.QueryParameter("metrics_filter", "metrics name cpu memory...in re2 regex").DataType("string").Required(false).DefaultValue("pod_memory_utilisation_wo_cache")).
-		Param(ws.QueryParameter("pods_filter", "pod re2 expression filter").DataType("string").Required(false).DefaultValue("openpitrix.*")).
+		Param(ws.QueryParameter("resources_filter", "pod re2 expression filter").DataType("string").Required(false).DefaultValue("openpitrix.*")).
 		Param(ws.QueryParameter("sort_metric", "sort metric").DataType("string").Required(false)).
 		Param(ws.QueryParameter("sort_type", "ascending descending order").DataType("string").Required(false)).
 		Param(ws.QueryParameter("page", "page number").DataType("string").Required(false).DefaultValue("1")).
@@ -332,7 +347,7 @@ func Register(ws *restful.WebService, subPath string) {
 		Doc("monitor specific pod level metrics by nodeid").
 		Param(ws.PathParameter("node_id", "specific node").DataType("string").Required(true)).
 		Param(ws.PathParameter("pod_name", "specific pod").DataType("string").Required(true)).
-		Param(ws.QueryParameter("containers_filter", "container re2 expression filter").DataType("string").Required(false).DefaultValue("")).
+		Param(ws.QueryParameter("resources_filter", "container re2 expression filter").DataType("string").Required(false).DefaultValue("")).
 		Param(ws.QueryParameter("metrics_filter", "metrics name cpu memory...").DataType("string").Required(false)).
 		Param(ws.QueryParameter("metrics_name", "metrics name cpu memory...").DataType("string").Required(true).DefaultValue("pod_memory_utilisation_wo_cache")).
 		Param(ws.QueryParameter("sort_metric", "sort metric").DataType("string").Required(false)).
@@ -349,7 +364,7 @@ func Register(ws *restful.WebService, subPath string) {
 		Doc("monitor containers level metrics").
 		Param(ws.PathParameter("ns_name", "specific namespace").DataType("string").Required(true).DefaultValue("monitoring")).
 		Param(ws.PathParameter("pod_name", "specific pod").DataType("string").Required(true).DefaultValue("")).
-		Param(ws.QueryParameter("containers_filter", "container re2 expression filter").DataType("string").Required(false).DefaultValue("")).
+		Param(ws.QueryParameter("resources_filter", "container re2 expression filter").DataType("string").Required(false).DefaultValue("")).
 		Param(ws.QueryParameter("metrics_filter", "metrics name cpu memory...").DataType("string").Required(false)).
 		Param(ws.QueryParameter("metrics_name", "metrics name cpu memory...").DataType("string").Required(true).DefaultValue("container_memory_utilisation_wo_cache")).
 		Param(ws.QueryParameter("sort_metric", "sort metric").DataType("string").Required(false)).
@@ -372,14 +387,14 @@ func Register(ws *restful.WebService, subPath string) {
 		Consumes(restful.MIME_JSON, restful.MIME_XML).
 		Produces(restful.MIME_JSON)
 
-	ws.Route(ws.GET(subPath+"/namespaces/{ns_name}/workloads/{workload_kind}").To(u.monitorWorkload).
+	ws.Route(ws.GET(subPath+"/namespaces/{ns_name}/{workload_kind}/{workload_name}").To(u.monitorWorkload).
 		Filter(route.RouteLogging).
 		Doc("monitor specific workload level metrics").
 		Param(ws.PathParameter("ns_name", "namespace").DataType("string").Required(true).DefaultValue("kube-system")).
-		Param(ws.QueryParameter("metrics_filter", "metrics name cpu memory...").DataType("string").Required(false)).
 		Param(ws.PathParameter("workload_kind", "workload kind").DataType("string").Required(false).DefaultValue("daemonset")).
-		Param(ws.QueryParameter("workload_name", "workload name").DataType("string").Required(true).DefaultValue("")).
-		Param(ws.QueryParameter("pods_filter", "pod re2 expression filter").DataType("string").Required(false).DefaultValue("openpitrix.*")).
+		Param(ws.PathParameter("workload_name", "workload name").DataType("string").Required(true).DefaultValue("")).
+		Param(ws.QueryParameter("metrics_filter", "metrics name cpu memory...").DataType("string").Required(false)).
+		Param(ws.QueryParameter("resources_filter", "pod re2 expression filter").DataType("string").Required(false).DefaultValue("openpitrix.*")).
 		Param(ws.QueryParameter("sort_metric", "sort metric").DataType("string").Required(false)).
 		Param(ws.QueryParameter("sort_type", "ascending descending order").DataType("string").Required(false)).
 		Param(ws.QueryParameter("page", "page number").DataType("string").Required(false).DefaultValue("1")).
@@ -389,12 +404,13 @@ func Register(ws *restful.WebService, subPath string) {
 		Consumes(restful.MIME_JSON, restful.MIME_XML).
 		Produces(restful.MIME_JSON)
 
-	ws.Route(ws.GET(subPath+"/namespaces/{ns_name}/workloads").To(u.monitorWorkload).
+	ws.Route(ws.GET(subPath+"/namespaces/{ns_name}/{workload_kind}").To(u.monitorWorkload).
 		Filter(route.RouteLogging).
 		Doc("monitor all workload level metrics").
 		Param(ws.PathParameter("ns_name", "namespace").DataType("string").Required(true).DefaultValue("kube-system")).
+		Param(ws.PathParameter("workload_kind", "workload kind").DataType("string").Required(false).DefaultValue("daemonset")).
 		Param(ws.QueryParameter("metrics_filter", "metrics name cpu memory...").DataType("string").Required(false)).
-		Param(ws.QueryParameter("workloads_filter", "pod re2 expression filter").DataType("string").Required(false).DefaultValue("")).
+		Param(ws.QueryParameter("resources_filter", "pod re2 expression filter").DataType("string").Required(false).DefaultValue("")).
 		Param(ws.QueryParameter("sort_metric", "sort metric").DataType("string").Required(false)).
 		Param(ws.QueryParameter("sort_type", "ascending descending order").DataType("string").Required(false)).
 		Param(ws.QueryParameter("page", "page number").DataType("string").Required(false).DefaultValue("1")).
@@ -409,7 +425,7 @@ func Register(ws *restful.WebService, subPath string) {
 		Filter(route.RouteLogging).
 		Doc("monitor workspaces level metrics").
 		Param(ws.PathParameter("workspace_name", "workspace name").DataType("string").Required(true)).
-		Param(ws.QueryParameter("namespaces_filter", "namespaces filter").DataType("string").Required(false).DefaultValue("k.*")).
+		Param(ws.QueryParameter("resources_filter", "namespaces filter").DataType("string").Required(false).DefaultValue("k.*")).
 		Param(ws.QueryParameter("metrics_filter", "metrics name cpu memory...in re2 regex").DataType("string").Required(false).DefaultValue("namespace_memory_utilisation_wo_cache")).
 		Param(ws.QueryParameter("sort_metric", "sort metric").DataType("string").Required(false)).
 		Param(ws.QueryParameter("sort_type", "ascending descending order").DataType("string").Required(false)).
@@ -424,7 +440,7 @@ func Register(ws *restful.WebService, subPath string) {
 		Filter(route.RouteLogging).
 		Doc("monitor workspaces level metrics").
 		Param(ws.QueryParameter("metrics_filter", "metrics name cpu memory...in re2 regex").DataType("string").Required(false).DefaultValue("workspace_memory_utilisation")).
-		Param(ws.QueryParameter("workspaces_filter", "workspaces re2 expression filter").DataType("string").Required(false).DefaultValue(".*")).
+		Param(ws.QueryParameter("resources_filter", "workspaces re2 expression filter").DataType("string").Required(false).DefaultValue(".*")).
 		Param(ws.QueryParameter("sort_metric", "sort metric").DataType("string").Required(false)).
 		Param(ws.QueryParameter("sort_type", "ascending descending order").DataType("string").Required(false)).
 		Param(ws.QueryParameter("page", "page number").DataType("string").Required(false).DefaultValue("1")).

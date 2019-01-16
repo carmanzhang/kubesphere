@@ -304,3 +304,65 @@ func UpperFirstLetter(str string) string {
 	}
 	return ""
 }
+
+// maybe this function is time consuming
+func AddResourceNameField(v interface{}, srcField string, targetValue ...string) {
+	switch v.(type) {
+	case *FormatedLevelMetric:
+		m := v.(*FormatedLevelMetric)
+		res := m.Results
+		for i := 0; i < len(res); i++ {
+			result := res[i].Data.Result
+			for _, res := range result {
+				metric, exist := res[ResultItemMetric]
+				metricMap, sure := metric.(map[string]interface{})
+				if exist && sure {
+					if v, ok := metricMap[srcField]; ok {
+						metricMap["resource_name"] = v
+					} else {
+						metricMap["resource_name"] = targetValue[0]
+					}
+				}
+			}
+		}
+	case *FormatedMetric:
+		m := v.(*FormatedMetric)
+		result := m.Data.Result
+		for _, res := range result {
+			metric, exist := res[ResultItemMetric]
+			metricMap, sure := metric.(map[string]interface{})
+			if exist && sure {
+				if v, ok := metricMap[srcField]; ok {
+					metricMap["resource_name"] = v
+				}
+			}
+		}
+	default:
+		// *struct { *metrics.FormatedLevelMetric; CurrentPage int "json:\"page\""; TotalPage int "json:\"total_page\""; TotalItem int "json:\"total_item\""; Message string "json:\"msg\"" }
+
+		vv := v.(*struct {
+			*FormatedLevelMetric
+			CurrentPage int    `json:"page"`
+			TotalPage   int    `json:"total_page"`
+			TotalItem   int    `json:"total_item"`
+			Message     string `json:"msg"`
+		})
+		m := vv.FormatedLevelMetric
+
+		res := m.Results
+		for i := 0; i < len(res); i++ {
+			result := res[i].Data.Result
+			for _, res := range result {
+				metric, exist := res[ResultItemMetric]
+				metricMap, sure := metric.(map[string]interface{})
+				if exist && sure {
+					if v, ok := metricMap[srcField]; ok {
+						metricMap["resource_name"] = v
+					} else {
+						metricMap["resource_name"] = targetValue[0]
+					}
+				}
+			}
+		}
+	}
+}

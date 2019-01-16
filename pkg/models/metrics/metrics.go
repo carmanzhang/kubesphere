@@ -239,7 +239,7 @@ func AssembleSpecificWorkloadMetricRequestInfo(monitoringRequest *client.Monitor
 
 	nsName := monitoringRequest.NsName
 	wkName := monitoringRequest.WorkloadName
-	podsFilter := monitoringRequest.PodsFilter
+	podsFilter := monitoringRequest.ResourcesFilter
 
 	rule := MakeSpecificWorkloadRule(monitoringRequest.WorkloadKind, wkName, nsName)
 	paramValues := monitoringRequest.Params
@@ -261,7 +261,7 @@ func AssembleAllWorkloadMetricRequestInfo(monitoringRequest *client.MonitoringRe
 
 	paramValues := monitoringRequest.Params
 
-	rule := MakeWorkloadPromQL(metricName, monitoringRequest.NsName, monitoringRequest.WlFilter)
+	rule := MakeWorkloadPromQL(metricName, monitoringRequest.NsName, monitoringRequest.ResourcesFilter)
 	params := makeRequestParamString(rule, paramValues)
 	return queryType, params
 }
@@ -271,7 +271,7 @@ func AssemblePodMetricRequestInfo(monitoringRequest *client.MonitoringRequestPar
 
 	paramValues := monitoringRequest.Params
 
-	rule := MakePodPromQL(metricName, monitoringRequest.NsName, monitoringRequest.NodeId, monitoringRequest.PodName, monitoringRequest.PodsFilter)
+	rule := MakePodPromQL(metricName, monitoringRequest.NsName, monitoringRequest.NodeId, monitoringRequest.PodName, monitoringRequest.ResourcesFilter)
 	params := makeRequestParamString(rule, paramValues)
 	return queryType, params, rule == ""
 }
@@ -328,7 +328,7 @@ func AssembleContainerMetricRequestInfo(monitoringRequest *client.MonitoringRequ
 	queryType := monitoringRequest.QueryType
 
 	paramValues := monitoringRequest.Params
-	rule := MakeContainerPromQL(monitoringRequest.NsName, monitoringRequest.NodeId, monitoringRequest.PodName, monitoringRequest.ContainerName, metricName, monitoringRequest.ContainersFilter)
+	rule := MakeContainerPromQL(monitoringRequest.NsName, monitoringRequest.NodeId, monitoringRequest.PodName, monitoringRequest.ContainerName, metricName, monitoringRequest.ResourcesFilter)
 	params := makeRequestParamString(rule, paramValues)
 
 	return queryType, params
@@ -338,7 +338,7 @@ func AssembleNamespaceMetricRequestInfo(monitoringRequest *client.MonitoringRequ
 	queryType := monitoringRequest.QueryType
 
 	paramValues := monitoringRequest.Params
-	rule := MakeNamespacePromQL(monitoringRequest.NsName, monitoringRequest.NsFilter, metricName)
+	rule := MakeNamespacePromQL(monitoringRequest.NsName, monitoringRequest.ResourcesFilter, metricName)
 	params := makeRequestParamString(rule, paramValues)
 
 	return queryType, params
@@ -428,7 +428,7 @@ func MonitorAllWorkspaces(monitoringRequest *client.MonitoringRequestParams) *Fo
 	wsMap := getAllWorkspaces()
 
 	for ws := range wsMap {
-		bol, err := regexp.MatchString(monitoringRequest.WsFilter, ws)
+		bol, err := regexp.MatchString(monitoringRequest.ResourcesFilter, ws)
 		if err == nil && bol {
 			// a workspace
 			wgAll.Add(1)
@@ -559,7 +559,7 @@ func MonitorAllMetrics(monitoringRequest *client.MonitoringRequestParams, resour
 				if err != nil {
 					glog.Errorln(err.Error())
 				}
-				namespaceArray = filterNamespace(monitoringRequest.NsFilter, namespaceArray)
+				namespaceArray = filterNamespace(monitoringRequest.ResourcesFilter, namespaceArray)
 
 				if monitoringRequest.Tp == "rank" {
 					for _, metricName := range NamespaceMetricsNames {
@@ -569,7 +569,7 @@ func MonitorAllMetrics(monitoringRequest *client.MonitoringRequestParams, resour
 
 						bol, err := regexp.MatchString(metricsFilter, metricName)
 						ns := "^(" + strings.Join(namespaceArray, "|") + ")$"
-						monitoringRequest.NsFilter = ns
+						monitoringRequest.ResourcesFilter = ns
 						if err == nil && bol {
 							wg.Add(1)
 							go func(metricName string) {
@@ -997,7 +997,7 @@ func AssembleClusterMetricRequestInfo(monitoringRequest *client.MonitoringReques
 func AssembleNodeMetricRequestInfo(monitoringRequest *client.MonitoringRequestParams, metricName string) (string, string) {
 	queryType := monitoringRequest.QueryType
 	paramValues := monitoringRequest.Params
-	rule := MakeNodeRule(monitoringRequest.NodeId, monitoringRequest.NodesFilter, metricName)
+	rule := MakeNodeRule(monitoringRequest.NodeId, monitoringRequest.ResourcesFilter, metricName)
 	params := makeRequestParamString(rule, paramValues)
 
 	return queryType, params
